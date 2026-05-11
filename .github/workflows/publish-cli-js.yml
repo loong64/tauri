@@ -17,6 +17,10 @@ on:
   # schedule:
   #   - cron: '0 10 * * *'
 
+permissions:
+  contents: write # update release
+  id-token: write # oidc token
+
 jobs:
   check:
     runs-on: ubuntu-slim
@@ -121,13 +125,10 @@ jobs:
         run: ${{ matrix.settings.build }}
         if: ${{ !matrix.settings.docker }}
         shell: bash
-      - name: Rename artifacts
+      - name: List artifacts
         if: contains(matrix.settings.target, 'loongarch64')
         run: |
-          for file in cli.*.node; do
-            new_file=$(echo "$file" | sed 's/loongarch64/loong64/')
-            sudo mv "$file" "$new_file"
-          done
+          ls -al
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
@@ -147,9 +148,6 @@ jobs:
     defaults:
       run:
         working-directory: packages/cli/
-    permissions:
-      contents: write # update release
-      id-token: write # npm provenance
     steps:
       - uses: actions/checkout@v6
         with:
@@ -163,7 +161,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 24
           cache: 'pnpm'
       - name: Install dependencies
         run: pnpm i --frozen-lockfile --ignore-scripts
