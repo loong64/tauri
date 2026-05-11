@@ -14,8 +14,8 @@ on:
         description: 'Version to build'
         required: false
         default: ''
-  # schedule:
-  #   - cron: '0 10 * * *'
+  schedule:
+    - cron: '0 10 * * *'
 
 permissions:
   contents: write # update release
@@ -34,7 +34,7 @@ jobs:
           if [ -n "${{ inputs.version }}" ]; then
             version="${{ inputs.version }}"
           else
-            version=$(curl -s 'https://api.github.com/repos/tauri-apps/tauri/releases/latest' | jq -r ".tag_name")
+            version=tauri-cli-v$(curl -s https://api.github.com/repos/tauri-apps/tauri/releases/latest | grep -oP '(?<=tauri-cli )\d+\.\d+\.\d+' | head -n 1)
           fi
           echo "Current Version: ${version}"
           if [ -z "${version}" ] || [ "${version}" == "null" ]; then
