@@ -58,7 +58,7 @@ index 43ddb8e..b45453f 100644
        Arch::Riscv64
      } else if self.target.starts_with("universal") {
 diff --git a/crates/tauri-cli/src/interface/rust.rs b/crates/tauri-cli/src/interface/rust.rs
-index 2b04627..b1931c4 100644
+index b8990fb..a0fa854 100644
 --- a/crates/tauri-cli/src/interface/rust.rs
 +++ b/crates/tauri-cli/src/interface/rust.rs
 @@ -794,6 +794,7 @@ impl AppSettings for RustAppSettings {
@@ -70,7 +70,7 @@ index 2b04627..b1931c4 100644
  
      let updater_enabled = config.bundle.create_updater_artifacts != Updater::Bool(false);
 diff --git a/crates/tauri-utils/src/platform.rs b/crates/tauri-utils/src/platform.rs
-index ec35853..5133a7e 100644
+index d6e6591..e09c144 100644
 --- a/crates/tauri-utils/src/platform.rs
 +++ b/crates/tauri-utils/src/platform.rs
 @@ -191,6 +191,8 @@ pub fn target_triple() -> crate::Result<String> {
@@ -101,45 +101,40 @@ index 13390d1..b0e6872 100644
  linker = "riscv64-linux-gnu-gcc"
  
 diff --git a/packages/cli/index.js b/packages/cli/index.js
-index 441ba64..a27216a 100644
+index ab5cfc8..ffe5961 100644
 --- a/packages/cli/index.js
 +++ b/packages/cli/index.js
-@@ -256,6 +256,35 @@ switch (platform) {
-           }
+@@ -272,6 +272,30 @@ function requireNative() {
+           loadErrors.push(e)
          }
-         break
-+      case 'loong64':
-+        if (isMusl()) {
-+          localFileExisted = existsSync(
-+            join(__dirname, 'cli.linux-loong64-musl.node')
-+          )
-+          try {
-+            if (localFileExisted) {
-+              nativeBinding = require('./cli.linux-loong64-musl.node')
-+            } else {
-+              nativeBinding = require('@tauri-apps/cli-linux-loong64-musl')
-+            }
-+          } catch (e) {
-+            loadError = e
-+          }
-+        } else {
-+          localFileExisted = existsSync(
-+            join(__dirname, 'cli.linux-loong64-gnu.node')
-+          )
-+          try {
-+            if (localFileExisted) {
-+              nativeBinding = require('./cli.linux-loong64-gnu.node')
-+            } else {
-+              nativeBinding = require('@tauri-apps/cli-linux-loong64-gnu')
-+            }
-+          } catch (e) {
-+            loadError = e
-+          }
+       }
++    } else if (process.arch === 'loong64') {
++      if (isMusl()) {
++        try {
++          return require('./cli.linux-loong64-musl.node')
++        } catch (e) {
++          loadErrors.push(e)
 +        }
-+        break
-       case 'riscv64':
-         if (isMusl()) {
-           localFileExisted = existsSync(
++        try {
++          return require('@tauri-apps/cli-linux-loong64-musl')
++        } catch (e) {
++          loadErrors.push(e)
++        }
++      } else {
++        try {
++          return require('./cli.linux-loong64-gnu.node')
++        } catch (e) {
++          loadErrors.push(e)
++        }
++        try {
++          return require('@tauri-apps/cli-linux-loong64-gnu')
++        } catch (e) {
++          loadErrors.push(e)
++        }
++      }
+     } else if (process.arch === 'riscv64') {
+       if (isMusl()) {
+         try {
 diff --git a/packages/cli/npm/linux-loong64-gnu/README.md b/packages/cli/npm/linux-loong64-gnu/README.md
 new file mode 100644
 index 0000000..44136a3
@@ -241,23 +236,23 @@ index 0000000..a25f7c5
 +  }
 +}
 diff --git a/packages/cli/package.json b/packages/cli/package.json
-index efbc8e8..7bd1c9c 100644
+index be721f7..abe6ad3 100644
 --- a/packages/cli/package.json
 +++ b/packages/cli/package.json
-@@ -27,14 +27,8 @@
-     "name": "cli",
-     "triples": {
-       "additional": [
--        "aarch64-apple-darwin",
--        "aarch64-unknown-linux-gnu",
--        "aarch64-unknown-linux-musl",
--        "armv7-unknown-linux-gnueabihf",
--        "x86_64-unknown-linux-musl",
--        "riscv64gc-unknown-linux-gnu",
--        "i686-pc-windows-msvc",
--        "aarch64-pc-windows-msvc"
-+        "loongarch64-unknown-linux-gnu",
-+        "loongarch64-unknown-linux-musl"
-       ]
-     }
+@@ -26,14 +26,8 @@
+   "napi": {
+     "binaryName": "cli",
+     "targets": [
+-      "aarch64-apple-darwin",
+-      "aarch64-unknown-linux-gnu",
+-      "aarch64-unknown-linux-musl",
+-      "armv7-unknown-linux-gnueabihf",
+-      "x86_64-unknown-linux-musl",
+-      "riscv64gc-unknown-linux-gnu",
+-      "i686-pc-windows-msvc",
+-      "aarch64-pc-windows-msvc"
++      "loongarch64-unknown-linux-gnu",
++      "loongarch64-unknown-linux-musl"
+     ]
    },
+   "devDependencies": {
