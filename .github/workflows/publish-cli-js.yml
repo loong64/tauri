@@ -1,0 +1,209 @@
+# Copyright 2019-2024 Tauri Programme within The Commons Conservancy
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
+
+name: publish `@tauri-apps/cli`
+env:
+  DEBUG: napi:*
+  APP_NAME: cli
+  MACOSX_DEPLOYMENT_TARGET: '10.13'
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build'
+        required: false
+        default: ''
+  # schedule:
+  #   - cron: '0 10 * * *'
+
+jobs:
+  check:
+    runs-on: ubuntu-slim
+    outputs:
+      version: ${{ steps.get-version.outputs.version }}
+      build: ${{ steps.check-build.outputs.build }}
+    steps:
+      - name: Check Version
+        id: get-version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            version="${{ inputs.version }}"
+          else
+            version=$(curl -s 'https://api.github.com/repos/tauri-apps/tauri/releases/latest' | jq -r ".tag_name")
+          fi
+          echo "Current Version: ${version}"
+          if [ -z "${version}" ] || [ "${version}" == "null" ]; then
+            echo "Failed to get version"
+            exit 1
+          fi
+          echo "version=${version}" >> $GITHUB_ENV
+          echo "version=${version}" >> $GITHUB_OUTPUT
+
+      - name: Check Build
+        id: check-build
+        run: |
+          gh release view ${version} -R ${{ github.repository }} >/dev/null 2>&1 || echo "build=1" >> $GITHUB_OUTPUT
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - host: ubuntu-latest
+            target: loongarch64-unknown-linux-gnu
+            docker: ghcr.io/loong64/napi-rs/nodejs-rust:lts-debian
+            build: |
+              npm i -g --force corepack
+              cd packages/cli
+              pnpm build --target loongarch64-unknown-linux-gnu
+              loongarch64-unknown-linux-gnu-strip *.node
+          - host: ubuntu-latest
+            architecture: x64
+            target: loongarch64-unknown-linux-musl
+            docker: ghcr.io/loong64/napi-rs/nodejs-rust:lts-alpine
+            build: |
+              cd packages/cli
+              rustup target add loongarch64-unknown-linux-musl
+              pnpm build --target loongarch64-unknown-linux-musl
+              /loongarch64-linux-musl-cross/bin/loongarch64-linux-musl-strip *.node
+    name: stable - ${{ matrix.settings.target }} - node@20
+    runs-on: ${{ matrix.settings.host }}
+    needs:
+      - check
+    if: needs.check.outputs.build == '1'
+    env:
+      version: ${{ needs.check.outputs.version }}
+    defaults:
+      run:
+        working-directory: packages/cli/
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: tauri-apps/tauri
+          ref: ${{ env.version }}
+      - name: Prepare build
+        run: |
+          cd ../../
+          wget -qO - https://github.com/${{ github.repository }}/raw/refs/heads/main/patch_loong64.patch | patch -p1
+      - run: npm i -g --force corepack
+      - name: Setup node
+        uses: actions/setup-node@v6
+        if: ${{ !matrix.settings.docker }}
+        with:
+          node-version: 20
+          cache: 'pnpm'
+          architecture: ${{ matrix.settings.architecture }}
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        if: ${{ !matrix.settings.docker }}
+        with:
+          targets: ${{ matrix.settings.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.settings.target }}
+        if: ${{ matrix.settings.docker }}
+      - name: Setup toolchain
+        run: ${{ matrix.settings.setup }}
+        if: ${{ matrix.settings.setup }}
+        shell: bash
+      - name: Install dependencies
+        run: pnpm i --frozen-lockfile --ignore-scripts
+
+      - name: Build in docker
+        uses: addnab/docker-run-action@v3
+        if: ${{ matrix.settings.docker }}
+        with:
+          image: ${{ matrix.settings.docker }}
+          options: --user 0:0 -v ${{ github.workspace }}/.cargo-cache/git/db:/root/.cargo/git/db -v ${{ github.workspace }}/.cargo/registry/cache:/root/.cargo/registry/cache -v ${{ github.workspace }}/.cargo/registry/index:/root/.cargo/registry/index -v ${{ github.workspace }}:/build -w /build
+          run: ${{ matrix.settings.build }}
+
+      - name: Build
+        run: ${{ matrix.settings.build }}
+        if: ${{ !matrix.settings.docker }}
+        shell: bash
+
+      - name: Rename artifacts
+        if: contains(matrix.settings.target, 'loongarch64')
+        run: |
+          for file in cli.*.node; do
+            new_file=$(echo "$file" | sed 's/loongarch64/loong64/')
+            sudo mv "$file" "$new_file"
+          done
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: bindings-${{ matrix.settings.target }}
+          path: packages/cli/${{ env.APP_NAME }}.*.node
+          if-no-files-found: error
+
+  publish:
+    name: Publish
+    runs-on: ubuntu-latest
+    needs:
+      - check
+      - build
+    if: needs.check.outputs.build == '1'
+    env:
+      version: ${{ needs.check.outputs.version }}
+    defaults:
+      run:
+        working-directory: packages/cli/
+    permissions:
+      contents: write # update release
+      id-token: write # npm provenance
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: tauri-apps/tauri
+          ref: ${{ env.version }}
+      - name: Prepare build
+        run: |
+          cd ../../
+          wget -qO - https://github.com/${{ github.repository }}/raw/refs/heads/main/patch_loong64.patch | patch -p1
+      - run: npm i -g --force corepack
+      - name: Setup node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: 'pnpm'
+      - name: Install dependencies
+        run: pnpm i --frozen-lockfile --ignore-scripts
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: packages/cli/artifacts
+      - name: Move artifacts
+        run: |
+          CLI_VERSION=$(jq -r .version package.json)
+          sed -i "s/0.0.0/${CLI_VERSION}/g" npm/linux-loong64-*/package.json
+          cp artifacts/bindings-loongarch64-unknown-linux-gnu/* ./npm/linux-loong64-gnu/
+          cp artifacts/bindings-loongarch64-unknown-linux-musl/* ./npm/linux-loong64-musl/
+      - name: List packages
+        run: ls -R ./npm
+        shell: bash
+      - name: Publish
+        run: |
+          pnpm pack
+          for pkg in linux-loong64-gnu linux-loong64-musl; do
+            cd npm/${pkg} && pnpm pack && cd -
+          done
+      - name: Make artifacts
+        run: |
+          mkdir -p release-assets
+          find . -name "*.tgz" -exec mv {} release-assets/ \;
+          # find release-assets/ -type f -name "tauri-apps-cli-*" ! -name "*loong64-*" -delete
+          ls -lh release-assets/
+      - name: Create release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME="${version}"
+          gh release create "${TAG_NAME}" \
+            --repo ${{ github.repository }} \
+            --generate-notes \
+            --title "${TAG_NAME}" \
+            release-assets/*

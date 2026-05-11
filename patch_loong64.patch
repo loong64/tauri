@@ -1,0 +1,263 @@
+diff --git a/crates/tauri-bundler/src/bundle/linux/debian.rs b/crates/tauri-bundler/src/bundle/linux/debian.rs
+index 6f8bad6..6d498b2 100644
+--- a/crates/tauri-bundler/src/bundle/linux/debian.rs
++++ b/crates/tauri-bundler/src/bundle/linux/debian.rs
+@@ -46,6 +46,7 @@ pub fn bundle_project(settings: &Settings) -> crate::Result<Vec<PathBuf>> {
+     Arch::AArch64 => "arm64",
+     Arch::Armhf => "armhf",
+     Arch::Armel => "armel",
++    Arch::LoongArch64 => "loong64",
+     Arch::Riscv64 => "riscv64",
+     target => {
+       return Err(crate::Error::ArchError(format!(
+diff --git a/crates/tauri-bundler/src/bundle/linux/rpm.rs b/crates/tauri-bundler/src/bundle/linux/rpm.rs
+index ef49685..19e100e 100644
+--- a/crates/tauri-bundler/src/bundle/linux/rpm.rs
++++ b/crates/tauri-bundler/src/bundle/linux/rpm.rs
+@@ -29,6 +29,7 @@ pub fn bundle_project(settings: &Settings) -> crate::Result<Vec<PathBuf>> {
+     Arch::AArch64 => "aarch64",
+     Arch::Armhf => "armhfp",
+     Arch::Armel => "armel",
++    Arch::LoongArch64 => "loongarch64",
+     Arch::Riscv64 => "riscv64",
+     target => {
+       return Err(crate::Error::ArchError(format!(
+diff --git a/crates/tauri-bundler/src/bundle/platform.rs b/crates/tauri-bundler/src/bundle/platform.rs
+index 2556259..05acd24 100644
+--- a/crates/tauri-bundler/src/bundle/platform.rs
++++ b/crates/tauri-bundler/src/bundle/platform.rs
+@@ -57,6 +57,8 @@ pub fn target_triple() -> Result<String, crate::Error> {
+         "armv7".into()
+       } else if cfg!(target_arch = "aarch64") {
+         "aarch64".into()
++      } else if cfg!(target_arch = "loongarch64") {
++        "loongarch64".into()
+       } else if cfg!(target_arch = "riscv64") {
+         "riscv64".into()
+       } else {
+diff --git a/crates/tauri-bundler/src/bundle/settings.rs b/crates/tauri-bundler/src/bundle/settings.rs
+index 43ddb8e..b45453f 100644
+--- a/crates/tauri-bundler/src/bundle/settings.rs
++++ b/crates/tauri-bundler/src/bundle/settings.rs
+@@ -739,6 +739,8 @@ pub enum Arch {
+   Armhf,
+   /// For the AArch32 / ARM32 instruction sets with soft-float (32 bits).
+   Armel,
++  /// For the LoongArch instruction sets (64 bits).
++  LoongArch64,
+   /// For the RISC-V instruction sets (64 bits).
+   Riscv64,
+   /// For universal macOS applications.
+@@ -927,6 +929,8 @@ impl Settings {
+       Arch::Armel
+     } else if self.target.starts_with("aarch64") {
+       Arch::AArch64
++    } else if self.target.starts_with("loongarch64") {
++      Arch::LoongArch64
+     } else if self.target.starts_with("riscv64") {
+       Arch::Riscv64
+     } else if self.target.starts_with("universal") {
+diff --git a/crates/tauri-cli/src/interface/rust.rs b/crates/tauri-cli/src/interface/rust.rs
+index 2b04627..b1931c4 100644
+--- a/crates/tauri-cli/src/interface/rust.rs
++++ b/crates/tauri-cli/src/interface/rust.rs
+@@ -794,6 +794,7 @@ impl AppSettings for RustAppSettings {
+   ) -> crate::Result<BundleSettings> {
+     let arch64bits = self.target_triple.starts_with("x86_64")
+       || self.target_triple.starts_with("aarch64")
++      || self.target_triple.starts_with("loongarch64")
+       || self.target_triple.starts_with("riscv64");
+ 
+     let updater_enabled = config.bundle.create_updater_artifacts != Updater::Bool(false);
+diff --git a/crates/tauri-utils/src/platform.rs b/crates/tauri-utils/src/platform.rs
+index ec35853..5133a7e 100644
+--- a/crates/tauri-utils/src/platform.rs
++++ b/crates/tauri-utils/src/platform.rs
+@@ -191,6 +191,8 @@ pub fn target_triple() -> crate::Result<String> {
+     "armv7"
+   } else if cfg!(target_arch = "aarch64") {
+     "aarch64"
++  } else if cfg!(target_arch = "loongarch64") {
++    "loongarch64"
+   } else if cfg!(target_arch = "riscv64") {
+     "riscv64"
+   } else {
+diff --git a/packages/cli/.cargo/config.toml b/packages/cli/.cargo/config.toml
+index 13390d1..b0e6872 100644
+--- a/packages/cli/.cargo/config.toml
++++ b/packages/cli/.cargo/config.toml
+@@ -12,6 +12,13 @@ rustflags = ["-C", "target-feature=-crt-static"]
+ [target.armv7-unknown-linux-gnueabihf]
+ linker = "arm-linux-gnueabihf-gcc"
+ 
++[target.loongarch64-unknown-linux-gnu]
++linker = "loongarch64-linux-gnu-gcc"
++
++[target.loongarch64-unknown-linux-musl]
++linker = "loongarch64-linux-musl-gcc"
++rustflags = ["-C", "target-feature=-crt-static"]
++
+ [target.riscv64gc-unknown-linux-gnu]
+ linker = "riscv64-linux-gnu-gcc"
+ 
+diff --git a/packages/cli/index.js b/packages/cli/index.js
+index 441ba64..a27216a 100644
+--- a/packages/cli/index.js
++++ b/packages/cli/index.js
+@@ -256,6 +256,35 @@ switch (platform) {
+           }
+         }
+         break
++      case 'loong64':
++        if (isMusl()) {
++          localFileExisted = existsSync(
++            join(__dirname, 'cli.linux-loong64-musl.node')
++          )
++          try {
++            if (localFileExisted) {
++              nativeBinding = require('./cli.linux-loong64-musl.node')
++            } else {
++              nativeBinding = require('@tauri-apps/cli-linux-loong64-musl')
++            }
++          } catch (e) {
++            loadError = e
++          }
++        } else {
++          localFileExisted = existsSync(
++            join(__dirname, 'cli.linux-loong64-gnu.node')
++          )
++          try {
++            if (localFileExisted) {
++              nativeBinding = require('./cli.linux-loong64-gnu.node')
++            } else {
++              nativeBinding = require('@tauri-apps/cli-linux-loong64-gnu')
++            }
++          } catch (e) {
++            loadError = e
++          }
++        }
++        break
+       case 'riscv64':
+         if (isMusl()) {
+           localFileExisted = existsSync(
+diff --git a/packages/cli/npm/linux-loong64-gnu/README.md b/packages/cli/npm/linux-loong64-gnu/README.md
+new file mode 100644
+index 0000000..44136a3
+--- /dev/null
++++ b/packages/cli/npm/linux-loong64-gnu/README.md
+@@ -0,0 +1,3 @@
++# `@tauri-apps/cli-linux-loong64-gnu`
++
++This is the **loongarch64-unknown-linux-gnu** binary for `@tauri-apps/cli`
+diff --git a/packages/cli/npm/linux-loong64-gnu/package.json b/packages/cli/npm/linux-loong64-gnu/package.json
+new file mode 100644
+index 0000000..f887b1a
+--- /dev/null
++++ b/packages/cli/npm/linux-loong64-gnu/package.json
+@@ -0,0 +1,35 @@
++{
++  "name": "@tauri-apps/cli-linux-loong64-gnu",
++  "version": "0.0.0",
++  "repository": {
++    "type": "git",
++    "url": "git+https://github.com/tauri-apps/tauri.git"
++  },
++  "homepage": "https://github.com/tauri-apps/tauri#readme",
++  "bugs": {
++    "url": "https://github.com/tauri-apps/tauri/issues"
++  },
++  "contributors": [
++    "Tauri Programme within The Commons Conservancy"
++  ],
++  "license": "Apache-2.0 OR MIT",
++  "publishConfig": {
++    "access": "public"
++  },
++  "os": [
++    "linux"
++  ],
++  "cpu": [
++    "loong64"
++  ],
++  "libc": [
++    "glibc"
++  ],
++  "main": "cli.linux-loong64-gnu.node",
++  "files": [
++    "cli.linux-loong64-gnu.node"
++  ],
++  "engines": {
++    "node": ">= 10"
++  }
++}
+diff --git a/packages/cli/npm/linux-loong64-musl/README.md b/packages/cli/npm/linux-loong64-musl/README.md
+new file mode 100644
+index 0000000..316ca6e
+--- /dev/null
++++ b/packages/cli/npm/linux-loong64-musl/README.md
+@@ -0,0 +1,3 @@
++# `@tauri-apps/cli-linux-loong64-musl`
++
++This is the **loongarch64-unknown-linux-musl** binary for `@tauri-apps/cli`
+diff --git a/packages/cli/npm/linux-loong64-musl/package.json b/packages/cli/npm/linux-loong64-musl/package.json
+new file mode 100644
+index 0000000..a25f7c5
+--- /dev/null
++++ b/packages/cli/npm/linux-loong64-musl/package.json
+@@ -0,0 +1,35 @@
++{
++  "name": "@tauri-apps/cli-linux-loong64-musl",
++  "version": "0.0.0",
++  "repository": {
++    "type": "git",
++    "url": "git+https://github.com/tauri-apps/tauri.git"
++  },
++  "homepage": "https://github.com/tauri-apps/tauri#readme",
++  "bugs": {
++    "url": "https://github.com/tauri-apps/tauri/issues"
++  },
++  "contributors": [
++    "Tauri Programme within The Commons Conservancy"
++  ],
++  "license": "Apache-2.0 OR MIT",
++  "publishConfig": {
++    "access": "public"
++  },
++  "os": [
++    "linux"
++  ],
++  "cpu": [
++    "loong64"
++  ],
++  "libc": [
++    "musl"
++  ],
++  "main": "cli.linux-loong64-musl.node",
++  "files": [
++    "cli.linux-loong64-musl.node"
++  ],
++  "engines": {
++    "node": ">= 10"
++  }
++}
+diff --git a/packages/cli/package.json b/packages/cli/package.json
+index efbc8e8..7bd1c9c 100644
+--- a/packages/cli/package.json
++++ b/packages/cli/package.json
+@@ -27,14 +27,8 @@
+     "name": "cli",
+     "triples": {
+       "additional": [
+-        "aarch64-apple-darwin",
+-        "aarch64-unknown-linux-gnu",
+-        "aarch64-unknown-linux-musl",
+-        "armv7-unknown-linux-gnueabihf",
+-        "x86_64-unknown-linux-musl",
+-        "riscv64gc-unknown-linux-gnu",
+-        "i686-pc-windows-msvc",
+-        "aarch64-pc-windows-msvc"
++        "loongarch64-unknown-linux-gnu",
++        "loongarch64-unknown-linux-musl"
+       ]
+     }
+   },
