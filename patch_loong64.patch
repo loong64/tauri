@@ -236,13 +236,16 @@ index 0000000..a25f7c5
 +  }
 +}
 diff --git a/packages/cli/package.json b/packages/cli/package.json
-index be721f7..abe6ad3 100644
+index beb17f5..158739b 100644
 --- a/packages/cli/package.json
 +++ b/packages/cli/package.json
-@@ -26,14 +26,8 @@
+@@ -26,17 +26,8 @@
    "napi": {
      "binaryName": "cli",
      "targets": [
+-      "x86_64-unknown-linux-gnu",
+-      "x86_64-pc-windows-msvc",
+-      "x86_64-apple-darwin",
 -      "aarch64-apple-darwin",
 -      "aarch64-unknown-linux-gnu",
 -      "aarch64-unknown-linux-musl",
