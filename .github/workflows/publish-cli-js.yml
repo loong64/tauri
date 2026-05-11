@@ -39,7 +39,6 @@ jobs:
           fi
           echo "version=${version}" >> $GITHUB_ENV
           echo "version=${version}" >> $GITHUB_OUTPUT
-
       - name: Check Build
         id: check-build
         run: |
@@ -111,7 +110,6 @@ jobs:
         shell: bash
       - name: Install dependencies
         run: pnpm i --frozen-lockfile --ignore-scripts
-
       - name: Build in docker
         uses: addnab/docker-run-action@v3
         if: ${{ matrix.settings.docker }}
@@ -119,12 +117,10 @@ jobs:
           image: ${{ matrix.settings.docker }}
           options: --user 0:0 -v ${{ github.workspace }}/.cargo-cache/git/db:/root/.cargo/git/db -v ${{ github.workspace }}/.cargo/registry/cache:/root/.cargo/registry/cache -v ${{ github.workspace }}/.cargo/registry/index:/root/.cargo/registry/index -v ${{ github.workspace }}:/build -w /build
           run: ${{ matrix.settings.build }}
-
       - name: Build
         run: ${{ matrix.settings.build }}
         if: ${{ !matrix.settings.docker }}
         shell: bash
-
       - name: Rename artifacts
         if: contains(matrix.settings.target, 'loongarch64')
         run: |
@@ -132,7 +128,6 @@ jobs:
             new_file=$(echo "$file" | sed 's/loongarch64/loong64/')
             sudo mv "$file" "$new_file"
           done
-
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
